@@ -146,6 +146,59 @@
     )
 )
 
+;; Additional Utility Functions
+(define-read-only (get-user-loans (user principal))
+    (let
+        (
+            (user-loan-ids (default-to { active-loans: (list) } (map-get? user-loans { user: user })))
+            (active-loan-count (len (get active-loans user-loan-ids)))
+        )
+        (ok {
+            user: user,
+            loan-count: active-loan-count,
+            loans: (map get-loan-details (get active-loans user-loan-ids))
+        })
+    )
+)
+
+(define-private (get-loan-details (loan-id uint))
+    (let
+        (
+            (loan (unwrap-panic (map-get? loans { loan-id: loan-id })))
+        )
+        {
+            loan-id: loan-id,
+            collateral: (get collateral-amount loan),
+            borrowed: (get loan-amount loan),
+            health-ratio: (calculate-collateral-ratio (get collateral-amount loan) (get loan-amount loan)),
+            start-block: (get start-height loan)
+        }
+    )
+)
+
+(define-public (add-collateral (loan-id uint) (additional-collateral uint))
+    (let
+        (
+            (loan (unwrap! (map-get? loans { loan-id: loan-id }) err-loan-not-found))
+        )
+        (asserts! (is-eq (get borrower loan) tx-sender) (err u105)) ;; err-not-borrower
+        (asserts! (not (get liquidated loan)) err-already-liquidated)
+        
+        ;; Transfer additional collateral
+        (try! (stx-transfer? additional-collateral tx-sender (as-contract tx-sender)))
+        
+        ;; Update loan collateral amount
+        (map-set loans
+            { loan-id: loan-id }
+            (merge loan { 
+                collateral-amount: (+ (get collateral-amount loan) additional-collateral)
+            })
+        )
+        
+        (ok true)
+    )
+)
+
 ;; Administrative Functions
 (define-public (update-minimum-collateral-ratio (new-ratio uint))
     (begin
