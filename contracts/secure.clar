@@ -95,6 +95,57 @@
     )
 )
 
+;; Loan Health and Liquidation Functions
+(define-public (check-loan-health (loan-id uint))
+    (let
+        (
+            (loan (unwrap! (map-get? loans { loan-id: loan-id }) err-loan-not-found))
+            (current-ratio (calculate-collateral-ratio (get collateral-amount loan) (get loan-amount loan)))
+        )
+        (ok {
+            loan-id: loan-id,
+            health-ratio: current-ratio,
+            is-healthy: (>= current-ratio (var-get liquidation-threshold)),
+            borrower: (get borrower loan),
+            collateral: (get collateral-amount loan),
+            loan-amount: (get loan-amount loan)
+        })
+    )
+)
+
+(define-public (liquidate-loan (loan-id uint))
+    (let
+        (
+            (loan (unwrap! (map-get? loans { loan-id: loan-id }) err-loan-not-found))
+            (current-ratio (calculate-collateral-ratio (get collateral-amount loan) (get loan-amount loan)))
+        )
+        (asserts! (not (get liquidated loan)) err-already-liquidated)
+        (asserts! (< current-ratio (var-get liquidation-threshold)) (err u104)) ;; err-not-liquidatable
+        
+        ;; Calculate liquidation reward (5% of collateral)
+        (let
+            (
+                (liquidator-reward (/ (* (get collateral-amount loan) u5) u100))
+                (protocol-share (/ (* (get collateral-amount loan) (var-get protocol-fee)) u100))
+                (remaining-collateral (- (get collateral-amount loan) (+ liquidator-reward protocol-share)))
+            )
+            ;; Transfer liquidation reward to liquidator
+            (try! (as-contract (stx-transfer? liquidator-reward (as-contract tx-sender) tx-sender)))
+            ;; Transfer protocol fee
+            (try! (as-contract (stx-transfer? protocol-share (as-contract tx-sender) contract-owner)))
+            ;; Return remaining collateral to borrower
+            (try! (as-contract (stx-transfer? remaining-collateral (as-contract tx-sender) (get borrower loan))))
+            
+            ;; Update loan status
+            (map-set loans
+                { loan-id: loan-id }
+                (merge loan { liquidated: true })
+            )
+            (ok true)
+        )
+    )
+)
+
 ;; Administrative Functions
 (define-public (update-minimum-collateral-ratio (new-ratio uint))
     (begin
