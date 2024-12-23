@@ -8,6 +8,7 @@
 (define-constant err-already-liquidated (err u103))
 
 ;; Data Variables
+(define-data-var next-loan-id uint u0)               ;; Track the next available loan ID
 (define-data-var minimum-collateral-ratio uint u150) ;; 150% collateralization ratio
 (define-data-var liquidation-threshold uint u130)    ;; 130% liquidation threshold
 (define-data-var protocol-fee uint u1)               ;; 1% protocol fee
@@ -63,7 +64,7 @@
         )
         (asserts! (not (get liquidated loan)) err-already-liquidated)
         (try! (stx-transfer? total-due tx-sender (as-contract tx-sender)))
-        (try! (as-contract (stx-transfer? (get collateral-amount loan) (get borrower loan))))
+        (try! (as-contract (stx-transfer? (get collateral-amount loan) (as-contract tx-sender) (get borrower loan))))
         (map-delete loans { loan-id: loan-id })
         (ok true)
     )
